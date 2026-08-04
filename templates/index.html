@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Luna Chat</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-top">
+        <h2>Chats</h2>
+        <button id="new-chat-button" type="button">New</button>
+      </div>
+      <div id="chat-list" class="chat-list"></div>
+    </aside>
+
+    <section class="main-panel">
+      <header>
+        <div>
+          <h1>Luna Chat</h1>
+          <p>Model: <code>{{ model }}</code> · ECM paced</p>
+        </div>
+        <div class="header-actions">
+          <label class="compact-control" for="cache-mode">Cache
+            <select id="cache-mode">
+              <option value="off" selected>Off</option>
+              <option value="advisory">Advisory</option>
+              <option value="active">Active</option>
+            </select>
+          </label>
+          <label class="compact-control" for="voice-select">Luna voice
+            <select id="voice-select">
+              <option value="marin" selected>Feminine · Marin</option>
+              <option value="cedar">Masculine · Cedar</option>
+            </select>
+          </label>
+          <label class="compact-control" for="host-voice-select">Host voice
+            <select id="host-voice-select">
+              <option value="cedar" selected>Masculine · Cedar</option>
+              <option value="marin">Feminine · Marin</option>
+            </select>
+          </label>
+          <button id="export-podcast-button" class="secondary" type="button">Export Podcast</button>
+          <button id="export-transcript-button" class="secondary" type="button">Export Transcript</button>
+          <button id="settings-button" class="secondary" type="button" aria-expanded="false">Pacing</button>
+        </div>
+      </header>
+
+      <section id="pacing-panel" class="pacing-panel" hidden>
+        <label class="check-row"><input id="adaptive-pacing" type="checkbox" checked>Adapt Luna’s visible pace to my typing rhythm</label>
+        <label for="base-speed">Base presentation speed</label>
+        <div class="speed-row"><input id="base-speed" type="range" min="18" max="75" value="35" step="1"><output id="speed-output">35 characters/sec · Voice 1.00×</output></div>
+        <label for="response-length">Response length</label>
+        <div class="speed-row"><input id="response-length" type="range" min="1" max="5" value="3" step="1"><output id="response-length-output">Balanced</output></div>
+        <label class="check-row"><input id="transcribe-podcast" type="checkbox" checked>Verify exported podcast with OpenAI transcription</label>
+        <p class="panel-note">The modem-like rhythm includes brief pauses at punctuation. Response length guides Luna from concise to expansive. Podcast transcription creates authoritative text sidecars and, when enabled, a speech-recognition verification copy.</p>
+      </section>
+
+      <section id="messages" class="messages" aria-live="polite"></section>
+      <div id="pace-status" class="pace-status" aria-live="polite"></div>
+
+      <form id="chat-form">
+        <label for="message-input">Message</label>
+        <textarea id="message-input" rows="4" placeholder="Write a message…" autofocus></textarea>
+        <div class="form-row">
+          <span class="hint">Enter sends. Shift+Enter adds a line. Spoken audio is AI-generated. Podcast export requires FFmpeg.</span>
+          <div class="send-actions">
+            <button id="show-now-button" class="secondary" type="button" hidden>Show now</button>
+            <button id="send-button" type="submit">Send</button>
+          </div>
+        </div>
+      </form>
+    </section>
+  </main>
+  <script src="{{ url_for('static', filename='chat.js') }}"></script>
+</body>
+</html>
