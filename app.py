@@ -11,11 +11,15 @@ import zipfile
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
 from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 from flask import Flask, Response, jsonify, render_template, request, send_file
-from openai import OpenAI
 
 MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
+LOCAL_LLM_BASE_URL = os.getenv("LUNA_LOCAL_LLM_URL", "").strip().rstrip("/")
+LOCAL_LLM_MODEL = os.getenv("LUNA_LOCAL_LLM_MODEL", MODEL)
 TTS_MODEL = os.getenv("OPENAI_TTS_MODEL", "gpt-4o-mini-tts")
 TRANSCRIBE_MODEL = os.getenv("OPENAI_TRANSCRIBE_MODEL", "gpt-4o-transcribe")
 DB_PATH = Path(os.getenv("LUNA_DB_PATH", "luna_chat.db"))
@@ -36,10 +40,16 @@ RESPONSE_LENGTHS = {
     5: ("Explore the question expansively and thoroughly while remaining coherent.", 6000),
 }
 app = Flask(__name__)
+RUNTIME_OPENAI_API_KEY = None
 
 
 class RequestValidationError(ValueError):
     pass
+
+
+class HostedOpenAIError(RuntimeError):
+    def __init__(self,message,status_code=None):
+        super().__init__(message); self.status_code=status_code
 
 
 def number_param(payload, name, default, *, minimum=None, maximum=None, integer=False):
@@ -68,9 +78,58 @@ def handle_request_validation_error(exc):
 
 
 def utc_now(): return datetime.now(timezone.utc).isoformat(timespec="seconds")
-def get_client():
-    if not os.getenv("OPENAI_API_KEY"): raise RuntimeError("OPENAI_API_KEY is not set.")
-    return OpenAI()
+def get_openai_api_key():
+    api_key=RUNTIME_OPENAI_API_KEY or os.getenv("OPENAI_API_KEY")
+    if not api_key:raise HostedOpenAIError("OPENAI_API_KEY is not set.",401)
+    return api_key
+
+def get_openai_client():
+    # Keep the heavy SDK off the application startup path. Local-only chat does
+    # not need it at all; hosted audio/transcription imports it on first use.
+    from openai import OpenAI
+    return OpenAI(api_key=get_openai_api_key())
+
+def openai_key_error(exc):
+    text=str(exc).lower()
+    return getattr(exc,"status_code",None)==401 or "api key" in text or "authentication" in text
+
+def local_llm_url():
+    """Return a validated OpenAI-compatible loopback endpoint, if configured."""
+    if not LOCAL_LLM_BASE_URL:
+        return None
+    parsed=urlparse(LOCAL_LLM_BASE_URL)
+    if parsed.scheme not in {"http","https"} or parsed.hostname not in {"127.0.0.1","localhost","::1"} or parsed.port not in {8080,8081}:
+        raise RuntimeError("LUNA_LOCAL_LLM_URL must use localhost/loopback on port 8080 or 8081.")
+    return LOCAL_LLM_BASE_URL if parsed.path.rstrip("/").endswith("/v1") else f"{LOCAL_LLM_BASE_URL}/v1"
+
+def local_chat_completion(base_url,messages,max_tokens):
+    body=json.dumps({"model":LOCAL_LLM_MODEL,"messages":messages,"max_tokens":max_tokens}).encode("utf-8")
+    headers={"Content-Type":"application/json"}
+    api_key=os.getenv("LUNA_LOCAL_LLM_API_KEY")
+    if api_key:headers["Authorization"]=f"Bearer {api_key}"
+    req=Request(f"{base_url}/chat/completions",data=body,headers=headers,method="POST")
+    try:
+        with urlopen(req,timeout=120) as response:
+            payload=json.load(response)
+    except OSError as exc:
+        raise RuntimeError(f"Could not reach the local LLM at {base_url}: {exc}") from exc
+    try:return payload["choices"][0]["message"]["content"] or "[Luna returned no text.]"
+    except (KeyError,IndexError,TypeError) as exc:
+        raise RuntimeError("The local LLM returned an invalid Chat Completions response.") from exc
+
+def create_chat_response(conn,chat_id,message,length_instruction,max_tokens):
+    base_url=local_llm_url()
+    if base_url:
+        history=conn.execute("SELECT role,content FROM messages WHERE chat_id=? ORDER BY id",(chat_id,)).fetchall()
+        messages=[{"role":"system","content":f"{SYSTEM_INSTRUCTIONS}\n\nResponse-length preference: {length_instruction}"}]
+        messages.extend({"role":row["role"],"content":row["content"]} for row in history)
+        reply=local_chat_completion(base_url,messages,max_tokens)
+        return reply,None,LOCAL_LLM_MODEL
+    chat=conn.execute("SELECT previous_response_id FROM chats WHERE id=?",(chat_id,)).fetchone()
+    args={"model":MODEL,"instructions":f"{SYSTEM_INSTRUCTIONS}\n\nResponse-length preference: {length_instruction}","input":[{"role":"user","content":message}],"max_output_tokens":max_tokens}
+    if chat["previous_response_id"]:args["previous_response_id"]=chat["previous_response_id"]
+    response=get_openai_client().responses.create(**args)
+    return response.output_text or "[Luna returned no text.]",response.id,MODEL
 def connect_db():
     conn=sqlite3.connect(DB_PATH); conn.row_factory=sqlite3.Row; conn.execute("PRAGMA foreign_keys = ON"); return conn
 
@@ -118,11 +177,22 @@ def get_or_create_chat(conn,chat_id):
     now=utc_now(); cur=conn.execute("INSERT INTO chats(title,created_at,updated_at) VALUES(?,?,?)",("New chat",now,now)); return conn.execute("SELECT * FROM chats WHERE id=?",(cur.lastrowid,)).fetchone()
 def slug(text): return re.sub(r"[^a-z0-9]+","-",text.lower()).strip("-")[:55] or "luna-chat"
 def audio_key(message_id,voice,text): return hashlib.sha256(f"{TTS_MODEL}|{voice}|{message_id}|{text}".encode()).hexdigest()
+def create_speech_audio(voice,text):
+    payload={"model":TTS_MODEL,"voice":voice,"input":text,"instructions":"Speak naturally, warmly, and clearly at an unhurried conversational pace.","response_format":"mp3"}
+    req=Request("https://api.openai.com/v1/audio/speech",data=json.dumps(payload).encode("utf-8"),headers={"Authorization":f"Bearer {get_openai_api_key()}","Content-Type":"application/json"},method="POST")
+    try:
+        with urlopen(req,timeout=120) as response:return response.read()
+    except HTTPError as exc:
+        try:message=json.loads(exc.read().decode("utf-8"))["error"]["message"]
+        except Exception:message=f"OpenAI speech request failed with HTTP {exc.code}."
+        raise HostedOpenAIError(message,exc.code) from exc
+    except URLError as exc:
+        raise HostedOpenAIError(f"Could not reach the OpenAI speech service: {exc.reason}") from exc
+
 def cached_speech(message_id,voice,text):
     path=AUDIO_CACHE_DIR/f"{audio_key(message_id,voice,text)}.mp3"
     if not path.exists():
-        audio=get_client().audio.speech.create(model=TTS_MODEL,voice=voice,input=text,instructions="Speak naturally, warmly, and clearly at an unhurried conversational pace.",response_format="mp3")
-        data=audio.read() if hasattr(audio,"read") else bytes(audio.content); path.write_bytes(data)
+        path.write_bytes(create_speech_audio(voice,text))
     return path
 def require_ffmpeg():
     if not shutil.which("ffmpeg"): raise RuntimeError("FFmpeg is required for paced MP3 exports. Install it with: brew install ffmpeg")
@@ -163,7 +233,7 @@ def get_message(message_id):
     with connect_db() as conn:return conn.execute("SELECT m.*,c.title FROM messages m JOIN chats c ON c.id=m.chat_id WHERE m.id=?",(message_id,)).fetchone()
 
 @app.get("/")
-def index(): return render_template("index.html",model=MODEL,tts_model=TTS_MODEL)
+def index(): return render_template("index.html",model=LOCAL_LLM_MODEL if LOCAL_LLM_BASE_URL else MODEL,tts_model=TTS_MODEL)
 @app.get("/api/chats")
 def list_chats():
     with connect_db() as conn: rows=conn.execute("SELECT id,title,updated_at FROM chats ORDER BY updated_at DESC").fetchall()
@@ -197,12 +267,10 @@ def chat():
             match,score=(None,0.0) if mode=="off" else best_cache_match(conn,chat_id,message)
             if mode=="active" and match is not None and score>=.88:
                 reply=match["text"]; mid=insert_message(conn,chat_id,"assistant",reply,"cache"); conn.commit(); return jsonify({"reply":reply,"chat_id":chat_id,"source":"cache","cache_score":round(score,3),"message_id":mid,"user_message_id":user_id})
-            length_instruction,max_tokens=RESPONSE_LENGTHS[response_length]; args={"model":MODEL,"instructions":f"{SYSTEM_INSTRUCTIONS}\n\nResponse-length preference: {length_instruction}","input":[{"role":"user","content":message}],"max_output_tokens":max_tokens}
-            if chatrow["previous_response_id"]:args["previous_response_id"]=chatrow["previous_response_id"]
-            response=get_client().responses.create(**args); reply=response.output_text or "[Luna returned no text.]"
-            conn.execute("UPDATE chats SET previous_response_id=?,updated_at=? WHERE id=?",(response.id,utc_now(),chat_id)); mid=insert_message(conn,chat_id,"assistant",reply,"model"); cache_assistant_message(conn,chat_id,mid,reply); conn.commit()
+            length_instruction,max_tokens=RESPONSE_LENGTHS[response_length]; reply,response_id,response_model=create_chat_response(conn,chat_id,message,length_instruction,max_tokens)
+            conn.execute("UPDATE chats SET previous_response_id=?,updated_at=? WHERE id=?",(response_id,utc_now(),chat_id)); mid=insert_message(conn,chat_id,"assistant",reply,"model"); cache_assistant_message(conn,chat_id,mid,reply); conn.commit()
             advisory={"score":round(score,3),"preview":match["text"][:180]} if mode=="advisory" and match is not None and score>=.62 else None
-            return jsonify({"reply":reply,"model":MODEL,"response_id":response.id,"chat_id":chat_id,"source":"model","cache_advisory":advisory,"message_id":mid,"user_message_id":user_id})
+            return jsonify({"reply":reply,"model":response_model,"response_id":response_id,"chat_id":chat_id,"source":"model","cache_advisory":advisory,"message_id":mid,"user_message_id":user_id})
     except Exception as exc: app.logger.exception("Chat request failed"); return jsonify({"error":str(exc)}),500
 
 @app.post("/speak")
@@ -212,7 +280,19 @@ def speak():
     if not row:return jsonify({"error":"Message not found."}),404
     if voice not in ALLOWED_VOICES:return jsonify({"error":"Unsupported voice."}),400
     try:return send_file(cached_speech(message_id,voice,row["content"]),mimetype="audio/mpeg",conditional=True,max_age=86400)
-    except Exception as exc: app.logger.exception("Speech failed"); return jsonify({"error":str(exc)}),500
+    except Exception as exc:
+        app.logger.exception("Speech failed")
+        if openai_key_error(exc):return jsonify({"error":"An OpenAI API key is required or the supplied key was rejected.","code":"openai_key_required"}),401
+        return jsonify({"error":str(exc)}),500
+
+@app.post("/api/openai-key")
+def set_openai_key():
+    global RUNTIME_OPENAI_API_KEY
+    key=str((request.get_json(silent=True) or {}).get("api_key","")).strip()
+    if not key:return jsonify({"error":"Enter an OpenAI API key."}),400
+    if len(key)>512:return jsonify({"error":"That API key is too long."}),400
+    RUNTIME_OPENAI_API_KEY=key
+    return jsonify({"ok":True,"stored":"process_memory"})
 
 @app.get("/api/messages/<int:message_id>/audio")
 def save_audio(message_id):
@@ -253,7 +333,7 @@ def export_podcast(chat_id):
         if transcribe:
             try:
                 with dest.open("rb") as audio_file:
-                    result=get_client().audio.transcriptions.create(model=TRANSCRIBE_MODEL,file=audio_file)
+                    result=get_openai_client().audio.transcriptions.create(model=TRANSCRIBE_MODEL,file=audio_file)
                 whisper_text=getattr(result,"text",None) or str(result)
             except Exception:
                 app.logger.exception("Podcast transcription verification failed; authoritative transcript still created")
@@ -278,5 +358,8 @@ def export_transcript(chat_id):
         return send_file(bundle,mimetype="application/zip",as_attachment=True,download_name=bundle.name)
     except Exception as exc: app.logger.exception("Transcript export failed"); return jsonify({"error":str(exc)}),500
 
-if __name__=="__main__": init_db(); app.run(host="127.0.0.1",port=int(os.getenv("PORT","5000")),debug=True)
+if __name__=="__main__":
+    init_db()
+    debug=os.getenv("FLASK_DEBUG","").lower() in {"1","true","yes","on"}
+    app.run(host="127.0.0.1",port=int(os.getenv("PORT","5000")),debug=debug,use_reloader=debug)
 else:init_db()

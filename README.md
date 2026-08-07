@@ -20,6 +20,36 @@ python app.py
 
 Open `http://127.0.0.1:5000`.
 
+## Use a local LLM
+
+Luna Chat supports an OpenAI-compatible local server (including llama.cpp-style
+servers) on loopback port 8080 or 8081. The app adds `/v1` automatically:
+
+```bash
+export LUNA_LOCAL_LLM_URL='http://127.0.0.1:8080'
+export LUNA_LOCAL_LLM_MODEL='your-local-model-name'
+python app.py
+```
+
+Use `http://127.0.0.1:8081` for port 8081. A local chat server does not require
+`OPENAI_API_KEY`; conversation history is sent through the compatible Chat
+Completions API. Hosted speech, transcription, and podcast verification still
+require `OPENAI_API_KEY`. You can also set `LUNA_LOCAL_LLM_API_KEY` if your local
+server checks an API key.
+
+### Forward an LLM from M3
+
+If the model is listening on M3's loopback port 8080, forward it to this
+machine's port 8081 in a separate terminal:
+
+```bash
+./scripts/forward_m3_llm.sh
+```
+
+The script uses the SSH host alias `M3`. Pass a different SSH destination when
+needed, for example `./scripts/forward_m3_llm.sh glen@m3.local`. Keep the tunnel
+terminal open while using Luna Chat.
+
 ## Test
 
 ```bash

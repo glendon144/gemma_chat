@@ -74,6 +74,19 @@
       </form>
     </section>
   </main>
+  <dialog id="openai-key-dialog" aria-labelledby="openai-key-title">
+    <form id="openai-key-form">
+      <h2 id="openai-key-title">OpenAI voice key</h2>
+      <p>Hosted speech needs an OpenAI API key. Paste it below; it will be kept only in this running Luna Chat process.</p>
+      <label for="openai-key-input">API key</label>
+      <input id="openai-key-input" name="api_key" type="password" autocomplete="off" spellcheck="false" required>
+      <p id="openai-key-error" class="dialog-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button id="openai-key-cancel" class="secondary" type="button">Cancel</button>
+        <button id="openai-key-save" type="submit">Use Key</button>
+      </div>
+    </form>
+  </dialog>
   <script src="{{ url_for('static', filename='chat.js') }}"></script>
 </body>
 </html>
