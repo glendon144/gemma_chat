@@ -156,7 +156,7 @@ button:disabled { opacity: .55; cursor: wait; }
   content: "▌";
   display: inline-block;
   margin-left: 1px;
-  animation: luna-cursor 850ms steps(1) infinite;
+  animation: gemma-cursor 850ms steps(1) infinite;
 }
 
 .bubble.waiting {
@@ -164,7 +164,7 @@ button:disabled { opacity: .55; cursor: wait; }
   font-style: italic;
 }
 
-@keyframes luna-cursor {
+@keyframes gemma-cursor {
   0%, 48% { opacity: 1; }
   49%, 100% { opacity: 0; }
 }

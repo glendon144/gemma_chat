@@ -17,16 +17,16 @@ from urllib.request import Request, urlopen
 
 from flask import Flask, Response, jsonify, render_template, request, send_file
 
-MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
-LOCAL_LLM_BASE_URL = os.getenv("LUNA_LOCAL_LLM_URL", "").strip().rstrip("/")
-LOCAL_LLM_MODEL = os.getenv("LUNA_LOCAL_LLM_MODEL", MODEL)
+MODEL = os.getenv("OPENAI_MODEL", "gemma")
+LOCAL_LLM_BASE_URL = os.getenv("GEMMA_LOCAL_LLM_URL", "").strip().rstrip("/")
+LOCAL_LLM_MODEL = os.getenv("GEMMA_LOCAL_LLM_MODEL", MODEL)
 TTS_MODEL = os.getenv("OPENAI_TTS_MODEL", "gpt-4o-mini-tts")
 TRANSCRIBE_MODEL = os.getenv("OPENAI_TRANSCRIBE_MODEL", "gpt-4o-transcribe")
-DB_PATH = Path(os.getenv("LUNA_DB_PATH", "luna_chat.db"))
-DATA_DIR = Path(os.getenv("LUNA_DATA_DIR", "data"))
+DB_PATH = Path(os.getenv("GEMMA_DB_PATH", "gemma_chat.db"))
+DATA_DIR = Path(os.getenv("GEMMA_DATA_DIR", "data"))
 AUDIO_CACHE_DIR = DATA_DIR / "audio_cache"
 EXPORT_DIR = DATA_DIR / "exports"
-SYSTEM_INSTRUCTIONS = os.getenv("LUNA_INSTRUCTIONS", "You are Luna in a simple conversational chat application. Be helpful, candid, and natural. Do not use tools unless explicitly enabled by the application.")
+SYSTEM_INSTRUCTIONS = os.getenv("GEMMA_INSTRUCTIONS", "You are Gemma in a simple conversational chat application. Be helpful, candid, and natural. Do not use tools unless explicitly enabled by the application.")
 ALLOWED_VOICES = {"marin", "cedar"}
 NORMAL_PACING_CPS = 35.0
 MIN_AUDIO_RATE = 0.70
@@ -99,13 +99,13 @@ def local_llm_url():
         return None
     parsed=urlparse(LOCAL_LLM_BASE_URL)
     if parsed.scheme not in {"http","https"} or parsed.hostname not in {"127.0.0.1","localhost","::1"} or parsed.port not in {8080,8081}:
-        raise RuntimeError("LUNA_LOCAL_LLM_URL must use localhost/loopback on port 8080 or 8081.")
+        raise RuntimeError("GEMMA_LOCAL_LLM_URL must use localhost/loopback on port 8080 or 8081.")
     return LOCAL_LLM_BASE_URL if parsed.path.rstrip("/").endswith("/v1") else f"{LOCAL_LLM_BASE_URL}/v1"
 
 def local_chat_completion(base_url,messages,max_tokens):
     body=json.dumps({"model":LOCAL_LLM_MODEL,"messages":messages,"max_tokens":max_tokens}).encode("utf-8")
     headers={"Content-Type":"application/json"}
-    api_key=os.getenv("LUNA_LOCAL_LLM_API_KEY")
+    api_key=os.getenv("GEMMA_LOCAL_LLM_API_KEY")
     if api_key:headers["Authorization"]=f"Bearer {api_key}"
     req=Request(f"{base_url}/chat/completions",data=body,headers=headers,method="POST")
     try:
@@ -113,7 +113,7 @@ def local_chat_completion(base_url,messages,max_tokens):
             payload=json.load(response)
     except OSError as exc:
         raise RuntimeError(f"Could not reach the local LLM at {base_url}: {exc}") from exc
-    try:return payload["choices"][0]["message"]["content"] or "[Luna returned no text.]"
+    try:return payload["choices"][0]["message"]["content"] or "[Gemma returned no text.]"
     except (KeyError,IndexError,TypeError) as exc:
         raise RuntimeError("The local LLM returned an invalid Chat Completions response.") from exc
 
@@ -129,7 +129,7 @@ def create_chat_response(conn,chat_id,message,length_instruction,max_tokens):
     args={"model":MODEL,"instructions":f"{SYSTEM_INSTRUCTIONS}\n\nResponse-length preference: {length_instruction}","input":[{"role":"user","content":message}],"max_output_tokens":max_tokens}
     if chat["previous_response_id"]:args["previous_response_id"]=chat["previous_response_id"]
     response=get_openai_client().responses.create(**args)
-    return response.output_text or "[Luna returned no text.]",response.id,MODEL
+    return response.output_text or "[Gemma returned no text.]",response.id,MODEL
 def connect_db():
     conn=sqlite3.connect(DB_PATH); conn.row_factory=sqlite3.Row; conn.execute("PRAGMA foreign_keys = ON"); return conn
 
@@ -175,7 +175,7 @@ def get_or_create_chat(conn,chat_id):
         row=conn.execute("SELECT * FROM chats WHERE id=?",(chat_id,)).fetchone()
         if row:return row
     now=utc_now(); cur=conn.execute("INSERT INTO chats(title,created_at,updated_at) VALUES(?,?,?)",("New chat",now,now)); return conn.execute("SELECT * FROM chats WHERE id=?",(cur.lastrowid,)).fetchone()
-def slug(text): return re.sub(r"[^a-z0-9]+","-",text.lower()).strip("-")[:55] or "luna-chat"
+def slug(text): return re.sub(r"[^a-z0-9]+","-",text.lower()).strip("-")[:55] or "gemma-chat"
 def audio_key(message_id,voice,text): return hashlib.sha256(f"{TTS_MODEL}|{voice}|{message_id}|{text}".encode()).hexdigest()
 def create_speech_audio(voice,text):
     payload={"model":TTS_MODEL,"voice":voice,"input":text,"instructions":"Speak naturally, warmly, and clearly at an unhurried conversational pace.","response_format":"mp3"}
@@ -298,36 +298,36 @@ def set_openai_key():
 def save_audio(message_id):
     voice=request.args.get("voice","marin").lower(); rate=number_param(request.args,"rate",1,minimum=MIN_AUDIO_RATE,maximum=MAX_AUDIO_RATE); row=get_message(message_id)
     if not row:return jsonify({"error":"Message not found."}),404
-    if row["role"]!="assistant":return jsonify({"error":"Only Luna replies can be saved here."}),400
+    if row["role"]!="assistant":return jsonify({"error":"Only Gemma replies can be saved here."}),400
     if voice not in ALLOWED_VOICES:return jsonify({"error":"Unsupported voice."}),400
     try:
-        source=cached_speech(message_id,voice,row["content"]); name=f"Luna_{datetime.now().date()}_{slug(row['title'])}_{voice}_{rate:.2f}x.mp3"; dest=EXPORT_DIR/name; render_paced_mp3(source,dest,rate)
+        source=cached_speech(message_id,voice,row["content"]); name=f"Gemma_{datetime.now().date()}_{slug(row['title'])}_{voice}_{rate:.2f}x.mp3"; dest=EXPORT_DIR/name; render_paced_mp3(source,dest,rate)
         return send_file(dest,mimetype="audio/mpeg",as_attachment=True,download_name=name)
     except Exception as exc: app.logger.exception("Audio export failed"); return jsonify({"error":str(exc)}),500
 
 @app.post("/api/chats/<int:chat_id>/podcast")
 def export_podcast(chat_id):
     p=request.get_json(silent=True) or {}
-    host_voice=str(p.get("host_voice","cedar")).lower(); luna_voice=str(p.get("luna_voice","marin")).lower()
+    host_voice=str(p.get("host_voice","cedar")).lower(); gemma_voice=str(p.get("gemma_voice","marin")).lower()
     pacing_cps=number_param(p,"pacing_cps",NORMAL_PACING_CPS,minimum=18,maximum=75); rate=pacing_cps_to_audio_rate(pacing_cps)
     pause_seconds=number_param(p,"pause_seconds",.65,minimum=.25,maximum=1.5); pause=max(.25,min(1.5,pause_seconds/rate)); transcribe=bool(p.get("transcribe",True))
-    if host_voice not in ALLOWED_VOICES or luna_voice not in ALLOWED_VOICES:return jsonify({"error":"Unsupported voice selection."}),400
+    if host_voice not in ALLOWED_VOICES or gemma_voice not in ALLOWED_VOICES:return jsonify({"error":"Unsupported voice selection."}),400
     try:
         require_ffmpeg()
         with connect_db() as conn:
             chat=conn.execute("SELECT * FROM chats WHERE id=?",(chat_id,)).fetchone(); msgs=conn.execute("SELECT * FROM messages WHERE chat_id=? ORDER BY id",(chat_id,)).fetchall()
         if not chat or not msgs:return jsonify({"error":"This chat has no exportable messages."}),400
         timeline=[]; cursor=0.0
-        with tempfile.TemporaryDirectory(prefix="luna-podcast-") as td:
+        with tempfile.TemporaryDirectory(prefix="gemma-podcast-") as td:
             td=Path(td); pieces=[]; silence=td/"silence.wav"
             subprocess.run(["ffmpeg","-y","-hide_banner","-loglevel","error","-f","lavfi","-i","anullsrc=r=44100:cl=mono","-t",str(pause),str(silence)],check=True)
             for i,m in enumerate(msgs):
-                voice=host_voice if m["role"]=="user" else luna_voice; speaker="Glen" if m["role"]=="user" else "Luna"
+                voice=host_voice if m["role"]=="user" else gemma_voice; speaker="Glen" if m["role"]=="user" else "Gemma"
                 source=cached_speech(m["id"],voice,m["content"]); wav=td/f"{i:04d}.wav"
                 subprocess.run(["ffmpeg","-y","-hide_banner","-loglevel","error","-i",str(source),"-filter:a",atempo_chain(rate),"-ac","1","-ar","44100","-c:a","pcm_s16le",str(wav)],check=True)
                 duration=media_duration(wav); timeline.append({"speaker":speaker,"role":m["role"],"text":m["content"],"start":round(cursor,3),"end":round(cursor+duration,3),"message_id":m["id"]}); cursor+=duration+pause; pieces.extend([wav,silence])
             listing=td/"concat.txt"; listing.write_text("".join(f"file '{x.as_posix()}'\n" for x in pieces),encoding="utf-8")
-            stem=f"Luna_Podcast_{datetime.now().date()}_{slug(chat['title'])}_{rate:.2f}x"; dest=EXPORT_DIR/f"{stem}.mp3"
+            stem=f"Gemma_Podcast_{datetime.now().date()}_{slug(chat['title'])}_{rate:.2f}x"; dest=EXPORT_DIR/f"{stem}.mp3"
             subprocess.run(["ffmpeg","-y","-hide_banner","-loglevel","error","-f","concat","-safe","0","-i",str(listing),"-filter:a","loudnorm=I=-16:TP=-1.5:LRA=11","-codec:a","libmp3lame","-q:a","4",str(dest)],check=True)
         whisper_text=None
         if transcribe:
@@ -349,10 +349,10 @@ def export_transcript(chat_id):
         with connect_db() as conn:
             chat=conn.execute("SELECT * FROM chats WHERE id=?",(chat_id,)).fetchone(); msgs=conn.execute("SELECT * FROM messages WHERE chat_id=? ORDER BY id",(chat_id,)).fetchall()
         if not chat or not msgs:return jsonify({"error":"This chat has no transcript."}),400
-        stem=f"Luna_Transcript_{datetime.now().date()}_{slug(chat['title'])}"; bundle=EXPORT_DIR/f"{stem}.zip"
+        stem=f"Gemma_Transcript_{datetime.now().date()}_{slug(chat['title'])}"; bundle=EXPORT_DIR/f"{stem}.zip"
         plain=EXPORT_DIR/f"{stem}.txt"; structured=EXPORT_DIR/f"{stem}.json"
-        plain.write_text("\n\n".join(f"{'Glen' if m['role']=='user' else 'Luna'}:\n{m['content']}" for m in msgs),encoding="utf-8")
-        structured.write_text(json.dumps({"title":chat["title"],"exported_at":utc_now(),"messages":[{"id":m["id"],"speaker":"Glen" if m["role"]=="user" else "Luna","role":m["role"],"text":m["content"],"created_at":m["created_at"]} for m in msgs]},indent=2,ensure_ascii=False),encoding="utf-8")
+        plain.write_text("\n\n".join(f"{'Glen' if m['role']=='user' else 'Gemma'}:\n{m['content']}" for m in msgs),encoding="utf-8")
+        structured.write_text(json.dumps({"title":chat["title"],"exported_at":utc_now(),"messages":[{"id":m["id"],"speaker":"Glen" if m["role"]=="user" else "Gemma","role":m["role"],"text":m["content"],"created_at":m["created_at"]} for m in msgs]},indent=2,ensure_ascii=False),encoding="utf-8")
         with zipfile.ZipFile(bundle,"w",zipfile.ZIP_DEFLATED) as z:
             z.write(plain,plain.name); z.write(structured,structured.name)
         return send_file(bundle,mimetype="application/zip",as_attachment=True,download_name=bundle.name)

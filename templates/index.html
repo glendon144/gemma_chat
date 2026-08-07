@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Luna Chat</title>
+  <title>Gemma Chat</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
@@ -19,7 +19,7 @@
     <section class="main-panel">
       <header>
         <div>
-          <h1>Luna Chat</h1>
+          <h1>Gemma Chat</h1>
           <p>Model: <code>{{ model }}</code> · ECM paced</p>
         </div>
         <div class="header-actions">
@@ -30,7 +30,7 @@
               <option value="active">Active</option>
             </select>
           </label>
-          <label class="compact-control" for="voice-select">Luna voice
+          <label class="compact-control" for="voice-select">Gemma voice
             <select id="voice-select">
               <option value="marin" selected>Feminine · Marin</option>
               <option value="cedar">Masculine · Cedar</option>
@@ -49,13 +49,13 @@
       </header>
 
       <section id="pacing-panel" class="pacing-panel" hidden>
-        <label class="check-row"><input id="adaptive-pacing" type="checkbox" checked>Adapt Luna’s visible pace to my typing rhythm</label>
+        <label class="check-row"><input id="adaptive-pacing" type="checkbox" checked>Adapt Gemma’s visible pace to my typing rhythm</label>
         <label for="base-speed">Base presentation speed</label>
         <div class="speed-row"><input id="base-speed" type="range" min="18" max="75" value="35" step="1"><output id="speed-output">35 characters/sec · Voice 1.00×</output></div>
         <label for="response-length">Response length</label>
         <div class="speed-row"><input id="response-length" type="range" min="1" max="5" value="3" step="1"><output id="response-length-output">Balanced</output></div>
         <label class="check-row"><input id="transcribe-podcast" type="checkbox" checked>Verify exported podcast with OpenAI transcription</label>
-        <p class="panel-note">The modem-like rhythm includes brief pauses at punctuation. Response length guides Luna from concise to expansive. Podcast transcription creates authoritative text sidecars and, when enabled, a speech-recognition verification copy.</p>
+        <p class="panel-note">The modem-like rhythm includes brief pauses at punctuation. Response length guides Gemma from concise to expansive. Podcast transcription creates authoritative text sidecars and, when enabled, a speech-recognition verification copy.</p>
       </section>
 
       <section id="messages" class="messages" aria-live="polite"></section>
@@ -77,7 +77,7 @@
   <dialog id="openai-key-dialog" aria-labelledby="openai-key-title">
     <form id="openai-key-form">
       <h2 id="openai-key-title">OpenAI voice key</h2>
-      <p>Hosted speech needs an OpenAI API key. Paste it below; it will be kept only in this running Luna Chat process.</p>
+      <p>Hosted speech needs an OpenAI API key. Paste it below; it will be kept only in this running Gemma Chat process.</p>
       <label for="openai-key-input">API key</label>
       <input id="openai-key-input" name="api_key" type="password" autocomplete="off" spellcheck="false" required>
       <p id="openai-key-error" class="dialog-error" role="alert"></p>
