@@ -198,6 +198,8 @@ button:disabled { opacity: .55; cursor: wait; }
 .chat-delete { background:transparent; color:CanvasText; padding:6px; opacity:.55; }
 .main-panel { min-width:0; padding:18px; display:grid; grid-template-rows:auto auto 1fr auto auto; gap:14px; overflow:auto; }
 .compact-control { display:flex; align-items:center; gap:6px; font-size:.78rem; font-weight:650; }
+.token-control input[type="range"] { width:110px; }
+.token-control output { min-width:3.8em; text-align:right; font-variant-numeric:tabular-nums; }
 select { font:inherit; padding:7px 8px; border-radius:8px; border:1px solid color-mix(in srgb, CanvasText 20%, transparent); background:Canvas; color:CanvasText; }
 .message-tools { display:flex; gap:7px; margin-top:6px; }
 .message-tools button { padding:6px 10px; font-size:.76rem; background:color-mix(in srgb, CanvasText 8%, Canvas); color:CanvasText; border:1px solid color-mix(in srgb, CanvasText 16%, transparent); }

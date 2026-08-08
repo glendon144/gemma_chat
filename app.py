@@ -256,7 +256,7 @@ def delete_chat(chat_id):
 
 @app.post("/chat")
 def chat():
-    p=request.get_json(silent=True) or {}; message=str(p.get("message","")).strip(); mode=str(p.get("cache_mode","off")).lower(); chat_id=p.get("chat_id"); response_length=number_param(p,"response_length",3,minimum=1,maximum=5,integer=True)
+    p=request.get_json(silent=True) or {}; message=str(p.get("message","")).strip(); mode=str(p.get("cache_mode","off")).lower(); chat_id=p.get("chat_id"); response_length=number_param(p,"response_length",3,minimum=1,maximum=5,integer=True); max_tokens=number_param(p,"max_tokens",RESPONSE_LENGTHS[response_length][1],minimum=128,maximum=8192,integer=True)
     if not message:return jsonify({"error":"Please enter a message."}),400
     if len(message)>50000:return jsonify({"error":"That message is too long for this demo."}),400
     if mode not in CACHE_MODES:mode="off"
@@ -267,10 +267,10 @@ def chat():
             match,score=(None,0.0) if mode=="off" else best_cache_match(conn,chat_id,message)
             if mode=="active" and match is not None and score>=.88:
                 reply=match["text"]; mid=insert_message(conn,chat_id,"assistant",reply,"cache"); conn.commit(); return jsonify({"reply":reply,"chat_id":chat_id,"source":"cache","cache_score":round(score,3),"message_id":mid,"user_message_id":user_id})
-            length_instruction,max_tokens=RESPONSE_LENGTHS[response_length]; reply,response_id,response_model=create_chat_response(conn,chat_id,message,length_instruction,max_tokens)
+            length_instruction,_=RESPONSE_LENGTHS[response_length]; reply,response_id,response_model=create_chat_response(conn,chat_id,message,length_instruction,max_tokens)
             conn.execute("UPDATE chats SET previous_response_id=?,updated_at=? WHERE id=?",(response_id,utc_now(),chat_id)); mid=insert_message(conn,chat_id,"assistant",reply,"model"); cache_assistant_message(conn,chat_id,mid,reply); conn.commit()
             advisory={"score":round(score,3),"preview":match["text"][:180]} if mode=="advisory" and match is not None and score>=.62 else None
-            return jsonify({"reply":reply,"model":response_model,"response_id":response_id,"chat_id":chat_id,"source":"model","cache_advisory":advisory,"message_id":mid,"user_message_id":user_id})
+            return jsonify({"reply":reply,"model":response_model,"response_id":response_id,"chat_id":chat_id,"source":"model","cache_advisory":advisory,"message_id":mid,"user_message_id":user_id,"max_tokens":max_tokens})
     except Exception as exc: app.logger.exception("Chat request failed"); return jsonify({"error":str(exc)}),500
 
 @app.post("/speak")

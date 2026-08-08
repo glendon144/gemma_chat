@@ -31,6 +31,15 @@ def test_chat_rejects_out_of_range_or_fractional_response_length(client, value):
     assert response.is_json
 
 
+@pytest.mark.parametrize("value", ["many", None, True, float("nan"), 127, 8193, 512.5])
+def test_chat_rejects_invalid_max_tokens(client, value):
+    response = client.post("/chat", json={"message": "hello", "max_tokens": value})
+
+    assert response.status_code == 400
+    assert response.is_json
+    assert "max_tokens" in response.json["error"]
+
+
 @pytest.mark.parametrize("query", ["rate=fast", "rate=nan", "rate=0.5", "rate=2"])
 def test_audio_export_rejects_invalid_rate_before_message_lookup(client, query):
     response = client.get(f"/api/messages/999/audio?{query}")
