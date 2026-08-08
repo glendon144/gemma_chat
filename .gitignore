@@ -3,3 +3,4 @@ __pycache__/
 *.pyc
 gemma_chat.db
 data/
+.env
